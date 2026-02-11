@@ -1,8 +1,6 @@
-import os
-import shutil
-import pathlib
+from src.renamer import clean_filename
 
-def organize_files(file_paths, labels, output_dir, mode='copy'):
+def organize_files(file_paths, labels, output_dir, mode='copy', rename=False):
     """
     Organizes files into folders based on cluster labels.
     
@@ -11,6 +9,7 @@ def organize_files(file_paths, labels, output_dir, mode='copy'):
         labels (list): List of cluster labels corresponding to file_paths.
         output_dir (str): Root directory for organized files.
         mode (str): 'copy' (default) or 'move'. 'copy' is safer.
+        rename (bool): If True, cleans filenames before organizing.
     """
     
     # Create output directory if it doesn't exist
@@ -25,6 +24,11 @@ def organize_files(file_paths, labels, output_dir, mode='copy'):
         
         # Get filename
         filename = os.path.basename(file_path)
+        
+        # Clean filename if requested
+        if rename:
+            filename = clean_filename(filename)
+            
         dest_path = os.path.join(cluster_dir, filename)
         
         try:

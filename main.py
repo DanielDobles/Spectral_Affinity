@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True, help="Directory to save organized files.")
     parser.add_argument("--n_clusters", type=int, default=5, help="Number of clusters to Create.")
     parser.add_argument("--n_jobs", type=int, default=-1, help="Number of CPU cores to use (-1 for all).")
+    parser.add_argument("--clean_names", action="store_true", help="Remove prefixes and IDs from filenames.")
     
     args = parser.parse_args()
     
@@ -62,7 +63,7 @@ def main():
     
     # 4. Organize Files
     print(f"Organizing files into {args.output_dir}...")
-    organize_files(valid_paths, labels, args.output_dir, mode='copy')
+    organize_files(valid_paths, labels, args.output_dir, mode='copy', rename=args.clean_names)
     
     print("Done!")
 
