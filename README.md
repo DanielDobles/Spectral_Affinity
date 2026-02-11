@@ -1,28 +1,36 @@
-# Spectral_Affinity
-Computational Acoustic Taxonomy &amp; Unsupervised Audio Clustering
+# Spectral Affinity 🎵
 
-Abstract: Spectral Affinity is a Python-based analytical framework designed to deconstruct and categorize audio datasets based on their latent mathematical properties. Rather than relying on subjective metadata (genre tags or artist names), this system performs a morphological analysis of the raw audio signal.
+Automated audio file grouping based on mathematical features (timbre, tempo, and brightness).
 
-By leveraging Librosa for signal processing and Scikit-learn for machine learning, the algorithm extracts high-dimensional acoustic features—specifically Mel-Frequency Cepstral Coefficients (MFCCs) for timbre, Spectral Centroids for brightness, and Tempo (BPM) for rhythmic structure.
+## Features
+- **Fast:** Only processes 30 seconds from the center of each track.
+- **Parallel:** Uses multi-core processing for feature extraction.
+- **Safe:** Copies files to clusters by default (never overwrites originals).
+- **Intelligent:** Uses Machine Learning (K-Means) to find patterns.
 
-These features are projected into a normalized vector space where an unsupervised K-Means Clustering algorithm identifies inherent "affinities" or structural similarities between tracks. The result is a mathematically coherent organization of a music library, grouping compositions by their sonic texture and dynamic signature rather than arbitrary labels.
+## Installation
+Dependencies should be installed via:
+```bash
+pip install -r requirements.txt
+```
 
-Key Features:
+## Usage
+Run the main script providing the input directory and the target directory for organization.
 
-Signal Decomposition: Utilizes Fast Fourier Transform (FFT) derivatives to isolate specific audio characteristics.
+```bash
+python main.py --input_dir "path/to/your/music" --output_dir "path/to/organized_output" --n_clusters 5
+```
 
-Vector Space Modeling: Converts audio waves into numerical vectors for precise mathematical comparison.
+### Arguments
+- `--input_dir`: Directory containing your MP3, WAV, FLAC, etc.
+- `--output_dir`: Where the organized folders (`Cluster_0`, `Cluster_1`, etc.) will be created.
+- `--n_clusters`: Into how many groups should the music be divided (default: 5).
+- `--n_jobs`: Number of parallel jobs (default: -1, all CPUs).
 
-Local Compute Optimization: Engineered to run efficiently on standard CPU architectures using parallel processing (joblib), eliminating the need for GPU acceleration or cloud dependencies.
+## How it works
+The script creates a "digital fingerprint" for each song using:
+- **MFCCs:** Timbre/texture.
+- **Spectral Centroid:** Brightness/energy.
+- **Tempo:** Rhythm/BPM.
 
-Automated Taxonomy: Sorts hundreds of tracks into distinct, cohesive sonic clusters without human intervention.
-
-Technical Stack:
-
-Language: Python 3.x
-
-Audio Analysis: Librosa
-
-Machine Learning: Scikit-learn (K-Means / Nearest Neighbors)
-
-Data Handling: NumPy, Pandas
+Then, it applies a clustering algorithm to group songs with similar mathematical profiles.
