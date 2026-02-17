@@ -10,24 +10,17 @@ for cell in nb["cells"]:
         continue
     new_source = []
     for line in cell["source"]:
-        # Fix the over-escaped f-string for output name
-        line = line.replace(
-            r'                on = f\\\"',
-            '                on = f"'
-        )
-        line = line.replace(
-            r'.flac\\\"',
-            '.flac"'
-        )
-        # Fix the over-escaped display(HTML(...))  lines
-        line = line.replace(
-            r'display(HTML(\\\"',
-            "display(HTML('"
-        )
-        line = line.replace(
-            r'\\\"))',
-            "'))"
-        )
+        # Fix the f-string for output name (on = f"...")
+        line = line.replace('f\\"', 'f"')
+        line = line.replace('.flac\\"', '.flac"')
+        
+        # Fix the display(HTML(...)) lines
+        line = line.replace('HTML(\\"', 'HTML("')
+        line = line.replace('\\"))', '"))')
+        
+        # Also fix any remaining triple-escaped quotes if they exist
+        line = line.replace('\\\\\\"', '"')
+        
         new_source.append(line)
     cell["source"] = new_source
 
