@@ -15,10 +15,25 @@ Stage Order:
   9. Mastering Match   (Matchering reference)
 """
 
-import os, shutil, torch, numpy as np
+import os, re, shutil, torch, numpy as np
 import torchaudio
 import torchaudio.transforms as T
 import torchaudio.functional as F
+
+
+def clean_name(filepath):
+    """Strip Suno IDs and special chars from a filename."""
+    base = os.path.basename(filepath).rsplit('.', 1)[0]
+    clean = re.sub(r'^[\w\-]+?-', '', base)
+    clean = re.sub(r'[\-\_\.]', ' ', clean)
+    return clean.strip()
+
+
+def build_track_name(index, filepath, ext='flac'):
+    """Build a numbered output filename: '01 - Track Name.flac'"""
+    num = str(index).zfill(2)
+    name = clean_name(filepath)
+    return num + ' - ' + name + '.' + ext
 
 
 class UltimateSunoMaster:
