@@ -344,32 +344,44 @@ class UltimateSunoMaster:
     def process_track(self, input_path, output_path,
                       shaper_params=None, phase_control=-0.3,
                       stereo_width=0.3, punch_db=4.0, bass_hz=150):
+        """GPU optimized processing with detailed stage telemetry."""
+        current_stage = "Initialization"
         try:
+            current_stage = "Loading"
             wav, sr = torchaudio.load(input_path)
             wav = self._to_48k(wav.to(self.device), sr)
 
             if self.stages.get('neural_clean'):
+                current_stage = "Neural Clean (DFN3)"
                 wav = self.neural_clean(wav)
             if self.stages.get('spectral_shape'):
+                current_stage = "Spectral Shaper"
                 p = shaper_params or {'amount': 60, 'speed': 90, 'sensitivity': 30}
                 wav = self.spectral_shape(wav, **p)
             if self.stages.get('phase_shape'):
+                current_stage = "Phase Shaper"
                 wav = self.phase_shape(wav, control=phase_control)
             if self.stages.get('stereo_widen'):
+                current_stage = "Stereo Wider"
                 wav = self.stereo_widen(wav, width=stereo_width)
             if self.stages.get('mono_bass'):
+                current_stage = "Mono-Bass"
                 wav = self.mono_bass(wav, cutoff_hz=bass_hz)
             if self.stages.get('transient_punch'):
+                current_stage = "Transient Punch"
                 wav = self.transient_punch(wav, boost_db=punch_db)
             if self.stages.get('spectre_restore'):
+                current_stage = "Spectre Restore"
                 wav = self.spectre_restore(wav)
 
+            current_stage = "Saving"
             torchaudio.save(output_path, wav.cpu(), self.target_sr,
                             encoding='PCM_S', bits_per_sample=16)
-            return True
+            return {"status": "ok", "stage": "Complete"}
         except Exception as e:
-            print(f'  ⚠️ FAILED {os.path.basename(input_path)}: {e}')
-            return False
+            import traceback
+            error_details = traceback.format_exc()
+            return {"status": "error", "stage": current_stage, "msg": str(e), "trace": error_details}
 
 
 class MasteringEngine:
