@@ -67,12 +67,8 @@ class UltimateSunoMaster:
     #  Stage 1: Neural Cleaning (DeepFilterNet 3)
     # ═════════════════════════════════════════════════════════
     def neural_clean(self, wav):
-        if not self.dfn_available:
-            return wav
-        try:
-            return self._df_enhance(self._dfn_model, self._df_state, wav, atten_lim_db=6)
-        except:
-            return wav
+        # Neural Clean deactivated for music per user request to avoid high-end loss
+        return wav
 
     # ═════════════════════════════════════════════════════════
     #  Stage 2: Spectral Shaper — Ozone Stabilizer Mode
@@ -128,72 +124,12 @@ class UltimateSunoMaster:
     #  control: -1.0 (linearize) ← 0.0 (bypass) → +1.0 (analogize)
     #  stereo_link: Apply correlated phase correction to both channels
     # ═════════════════════════════════════════════════════════
-    def phase_shape(self, wav, control=-0.3, stereo_link=True):
-        if abs(control) < 0.01:
+    def phase_shape(self, wav, control=0.0, stereo_link=True):
+        # Stage 3: Phase Shaper (NOW SIMPLE DC OFFSET CLEANING)
+        # Replaced destructive FFT reconstruction with safe arithmetic cleaning
+        if not self.stages.get('phase_shape'):
             return wav
-
-        sr = self.target_sr
-        n_fft, hop = 4096, 1024
-        win = torch.hann_window(n_fft).to(self.device)
-
-        channels = []
-        ref_delta = None  # For stereo link
-
-        for ch in range(wav.shape[0]):
-            stft = torch.stft(wav[ch], n_fft=n_fft, hop_length=hop,
-                              window=win, return_complex=True)
-            mag = stft.abs()
-            phase = stft.angle()
-
-            if control < 0:
-                # ── LINEARIZE: reduce deviation from expected phase ──
-                bin_idx = torch.arange(phase.shape[0], dtype=torch.float32,
-                                       device=self.device)
-                frame_idx = torch.arange(phase.shape[1], dtype=torch.float32,
-                                         device=self.device)
-
-                # Expected phase: progressive advance per bin per frame
-                phase_advance = 2.0 * np.pi * bin_idx.unsqueeze(1) * hop / n_fft
-                expected = phase[:, :1] + phase_advance * frame_idx.unsqueeze(0)
-
-                # Wrapped deviation from expected
-                delta = torch.atan2(torch.sin(phase - expected),
-                                    torch.cos(phase - expected))
-
-                factor = 1.0 + control  # -1→0.0 (full linear), 0→1.0 (original)
-
-                if stereo_link and ch == 0:
-                    ref_delta = delta.clone()
-
-                if stereo_link and ch > 0 and ref_delta is not None:
-                    # Apply same correction strength to maintain stereo image
-                    # Only correct the "common" deviation, preserve the difference
-                    common = ref_delta * factor
-                    stereo_diff = delta - ref_delta
-                    new_phase = expected + common + stereo_diff
-                else:
-                    new_phase = expected + delta * factor
-
-            else:
-                # ── ANALOGIZE: add hardware-inspired phase curve ──
-                freqs = torch.linspace(0, sr / 2, phase.shape[0],
-                                       device=self.device)
-
-                analog = torch.zeros_like(freqs)
-                # Transformer: low-freq phase lag
-                analog += 0.15 * torch.exp(-((freqs - 80) / 60) ** 2)
-                # Tube preamp: midrange rotation
-                analog -= 0.08 * torch.exp(-((freqs - 3000) / 2000) ** 2)
-                # Tape machine: HF shimmer
-                analog += 0.12 * torch.sigmoid((freqs - 8000) / 2000)
-
-                new_phase = phase + analog.unsqueeze(1) * control
-
-            shaped = mag * torch.exp(1j * new_phase)
-            channels.append(torch.istft(shaped, n_fft=n_fft, hop_length=hop,
-                                        window=win, length=wav.shape[-1]))
-
-        return torch.stack(channels)
+        return wav - wav.mean(dim=-1, keepdim=True)
 
     # ═════════════════════════════════════════════════════════
     #  Stage 4: Stereo Wider

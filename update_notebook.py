@@ -2,20 +2,18 @@ import json
 import os
 
 nb_path = r'c:\Users\armon\DEV_main\Spectral_Affinity\Spectral_Affinity_Master.ipynb'
-
 with open(nb_path, 'r', encoding='utf-8') as f:
     nb = json.load(f)
 
-# 1. Update Header
 new_header = [
-    "# 🌌 Spectral Affinity Master v6.4\n",
-    "### 9-Stage Ultimate SunoMaster Pipeline (Audiophile Edition)\n",
+    "# 🌌 Spectral Affinity Master v6.5\n",
+    "### 9-Stage Ultimate SunoMaster Pipeline (Pure Audio Mode)\n",
     "\n",
     "| # | Stage | Tech | Effect |\n",
     "|---|-------|------|--------|\n",
-    "| 1 | 🧹 Soft Gate | Spectral Expander | Gentle noise floor reduction (No DFN) |\n",
+    "| 1 | 🧹 Clean | Bypass | Deactivated (Neural Clean OFF) |\n",
     "| 2 | 🎛️ Spectral Shaper | STFT Stabilizer | Resonance / harshness control |\n",
-    "| 3 | 🌀 Phase Correct | Coherence Rotator | Fixes phase cancellation (Non-destructive) |\n",
+    "| 3 | 🌀 DC Block | Arithmetic | Simple DC Offset removal (Phase Safe) |\n",
     "| 4 | 🔀 Stereo Wider | Safe M/S | Width without phase issues |\n",
     "| 5 | 🔊 Mono-Bass | Linkwitz-Riley | Sub-bass phase → mono |\n",
     "| 6 | 💥 Transient Punch | Envelope Mask | Restore attack dynamics |\n",
@@ -24,34 +22,21 @@ new_header = [
     "| 9 | 🎚️ Mastering Match | Matchering | Reference loudness & tone |"
 ]
 
-# 2. Update Restoration Class
 new_restoration_code = r"""class UltimateSunoMaster:
     def __init__(self, device='cuda', target_sr=48000, stages=None):
         self.device, self.target_sr = device, target_sr
         self.stages = stages or {'neural_clean':True,'spectral_shape':True,'phase_shape':True,'stereo_widen':True,'mono_bass':True,'transient_punch':True,'spectre_restore':True}
-        # DFN Removed per user request
 
     def _to_48k(self, wav, sr):
         try:
             return T.Resample(sr, self.target_sr).to(self.device)(wav) if sr != self.target_sr else wav
         except: return wav
 
-    # ── Stage 1: Soft Spectral Gate (Replaces Neural Clean) ──
-    def neural_clean(self, wav, threshold_db=-60, reduction_db=12):
-        if not self.stages.get('neural_clean'): return wav
-        sr, n, h = self.target_sr, 4096, 1024
-        win = torch.hann_window(n).to(self.device)
-        chs = []
-        for ch in range(wav.shape[0]):
-            stft = torch.stft(wav[ch], n_fft=n, hop_length=h, window=win, return_complex=True)
-            mag, phase = stft.abs(), stft.angle()
-            mag_db = 20 * torch.log10(mag + 1e-8)
-            mask = torch.sigmoid((mag_db - threshold_db) * 2.0)
-            gain = mask + 0.25 * (1 - mask)
-            chs.append(torch.istft(mag * gain * torch.exp(1j*phase), n_fft=n, hop_length=h, window=win, length=wav.shape[-1]))
-        return torch.stack(chs)
+    # ── Stage 1: Neural Clean (DEACTIVATED PER USER REQUEST) ──
+    def neural_clean(self, wav):
+        return wav
 
-    # ── Stage 2: Spectral Shaper (Stabilizer) ──
+    # ── Stage 2: Spectral Shaper (Stabilizer + Anti-Ringing) ──
     def spectral_shape(self, wav, amount=60, speed=90, sensitivity=30, focus_low=200, focus_high=16000):
         if not self.stages.get('spectral_shape'): return wav
         sr, n, h = self.target_sr, 4096, 1024
@@ -61,56 +46,58 @@ new_restoration_code = r"""class UltimateSunoMaster:
         for ch in range(wav.shape[0]):
             stft = torch.stft(wav[ch], n_fft=n, hop_length=h, window=win, return_complex=True)
             mag, phase = stft.abs(), stft.angle()
+            # Dynamic De-Resonator (Spectral Envelope)
             env = torch.nn.functional.conv1d(mag.t().unsqueeze(1), torch.ones(1,1,31,device=self.device)/31, padding=15).squeeze(1).t()
             excess = torch.clamp(20*torch.log10(mag+1e-8) - 20*torch.log10(env+1e-8) - sens_db, min=0)
             gain = 10**(-torch.clamp(excess*0.8, max=max_cut)/20)
-            freqs = torch.linspace(0, sr/2, mag.shape[0]).to(self.device)
-            mask = ((freqs>=focus_low)&(freqs<=focus_high)).float().unsqueeze(1)
+            
+            # Anti-Ringing for AI (Specific focus on 3k-8k range)
+            freqs = torch.linspace(0, sr/2, mag.shape[0]).to(self.device).unsqueeze(1)
+            ringing_mask = ((freqs >= 3000) & (freqs <= 8000)).float()
+            gain = gain * (1.0 - (ringing_mask * 0.15 * (amount/100.0))) # Subtle extra cut for AI metallic sounds
+            
+            mask = ((freqs>=focus_low)&(freqs<=focus_high)).float()
             gain = gain*mask + (1.0-mask)
             for t in range(1, gain.shape[1]): gain[:,t] = alpha*gain[:,t] + (1-alpha)*gain[:,t-1]
             chs.append(torch.istft((mag*gain)*torch.exp(1j*phase), n_fft=n, hop_length=h, window=win, length=wav.shape[-1]))
         return torch.stack(chs)
 
-    # ── Stage 3: Phase Corrector (Replaces Destructive Phase Shaper) ──
-    def phase_shape(self, wav, threshold_corr=0.0):
-        if not self.stages.get('phase_shape') or wav.shape[0] < 2: return wav
-        sr, n, h = self.target_sr, 4096, 1024
-        win = torch.hann_window(n).to(self.device)
-        S_l = torch.stft(wav[0], n_fft=n, hop_length=h, window=win, return_complex=True)
-        S_r = torch.stft(wav[1], n_fft=n, hop_length=h, window=win, return_complex=True)
-        mag_l, mag_r = S_l.abs(), S_r.abs()
-        phase_l, phase_r = S_l.angle(), S_r.angle()
-        cross_spec = S_l * torch.conj(S_r)
-        coherence = cross_spec.real / (mag_l * mag_r + 1e-10)
-        mask = (coherence < threshold_corr).float()
-        freqs = torch.linspace(0, sr/2, n//2+1, device=self.device)
-        weight = torch.exp(-freqs / 5000) + 0.5
-        mask = mask * weight.unsqueeze(1); mask = torch.clamp(mask, 0, 1)
-        if mask.shape[1] > 1:
-            k = torch.ones(1, 1, 5, device=self.device)/5
-            mask = torch.nn.functional.conv1d(mask.unsqueeze(1), k, padding=2).squeeze(1)
-        vec_l = torch.exp(1j * phase_l); vec_r = torch.exp(1j * phase_r)
-        corrected_vec_r = (1.0 - mask) * vec_r + mask * vec_l
-        corrected_vec_r = corrected_vec_r / (corrected_vec_r.abs() + 1e-10)
-        S_r_new = mag_r * corrected_vec_r
-        y_l = torch.istft(S_l, n_fft=n, hop_length=h, window=win, length=wav.shape[-1])
-        y_r = torch.istft(S_r_new, n_fft=n, hop_length=h, window=win, length=wav.shape[-1])
-        return torch.stack([y_l, y_r])
+    # ── Stage 3: Phase & DC Shaper (Phase Safe DC Block + Sub-HPF) ──
+    def phase_shape(self, wav, control=0.0):
+        if not self.stages.get('phase_shape'): return wav
+        # Remove DC Offset
+        wav = wav - wav.mean(dim=-1, keepdim=True)
+        # Steep 30Hz High Pass Filter to clean sub-bass rumble detected in dataset analysis
+        wav = F.highpass_biquad(wav, self.target_sr, 30.0, Q=0.707)
+        return wav
 
-    # ── Stage 4: Stereo Wider (Safe M/S) ──
+    # ── Stage 4: Stereo Wider (Phase-Aware Safe M/S) ──
     def stereo_widen(self, wav, width=0.2):
         if not self.stages.get('stereo_widen') or wav.shape[0] < 2: return wav
+        # Calculate Correlation to avoid phase collapse (Problem found in Min Corr tracks)
+        l, r = wav[0], wav[1]
+        prod = (l * r).sum()
+        norms = (l.pow(2).sum().sqrt() * r.pow(2).sum().sqrt()) + 1e-8
+        corr = prod / norms
+        
+        # Adaptive Width: If correlation is low (<0.4), narrow the stereo field instead of widening
+        # Width control: 0.2 is default. If corr is negative, we force narrowing.
+        actual_width = width if corr > 0.4 else width * (corr - 0.2)
+        
         m = (wav[0] + wav[1]) / 2
         s = (wav[0] - wav[1]) / 2
-        s = s * (1.0 + width)
+        s = s * (1.0 + actual_width)
         return torch.stack([m + s, m - s])
 
-    # ── Stage 5: Mono-Bass ──
+    # ── Stage 5: Mono-Bass (Sanitized Linkwitz-Riley) ──
     def mono_bass(self, wav, cutoff=150):
+        if not self.stages.get('mono_bass'): return wav
         low = F.lowpass_biquad(F.lowpass_biquad(wav, self.target_sr, cutoff), self.target_sr, cutoff)
         high = wav - low
-        if wav.shape[0] >= 2: low = low.mean(dim=0, keepdim=True).expand_as(low)
-        return low + high
+        if wav.shape[0] >= 2: 
+            low_mono = low.mean(dim=0, keepdim=True).expand_as(low)
+            return low_mono + high
+        return wav
 
     # ── Stage 6: Transient Punch ──
     def transient_punch(self, wav, boost_db=4.0):
@@ -158,11 +145,14 @@ new_restoration_code = r"""class UltimateSunoMaster:
             wav = self._to_48k(wav.to(self.device), sr)
             if self.stages.get('neural_clean'): wav = self.neural_clean(wav)
             if self.stages.get('spectral_shape'): wav = self.spectral_shape(wav, **(shaper_params or {}))
-            if self.stages.get('phase_shape'): wav = self.phase_shape(wav, threshold_corr=phase_control)
+            if self.stages.get('phase_shape'): wav = self.phase_shape(wav, control=phase_control)
             if self.stages.get('stereo_widen'): wav = self.stereo_widen(wav, width=stereo_width)
             if self.stages.get('mono_bass'): wav = self.mono_bass(wav)
             if self.stages.get('transient_punch'): wav = self.transient_punch(wav)
             if self.stages.get('spectre_restore'): wav = self.spectre_restore(wav)
+            # Peak Normalization before saving for consistency
+            pk = wav.abs().max()
+            if pk > 0: wav = wav * (0.95 / pk)
             torchaudio.save(output_path, wav.cpu(), self.target_sr, encoding='PCM_S', bits_per_sample=16)
             return {'status':'ok', 'stage':'Complete'}
         except Exception as e:
@@ -172,44 +162,28 @@ new_restoration_code = r"""class UltimateSunoMaster:
 class MasteringEngine:
     def __init__(self, ref=None):
         self.ref, self.available = ref, False
+        HAS_MATCHERING = False
+        try: import matchering as mg; HAS_MATCHERING = True
+        except: pass
         if ref and os.path.exists(str(ref)) and HAS_MATCHERING:
             self.available = True; print(f'  🎚️ Mastering ready | Ref: {os.path.basename(ref)}')
         else: print('  ℹ️ Mastering disabled' if not ref else f'  ⚠️ Ref not found: {ref}')
     def master(self, inp, out):
-        if not self.available: shutil.copy2(inp,out) if inp!=out else None; return False
-        try: mg.process(target=inp, reference=self.ref, results=[mg.pcm16(out)]); return True
-        except Exception as e: print(f'  ⚠️ {e}'); shutil.copy2(inp,out) if inp!=out else None; return False
+        if not self.available: shutil.move(inp,out) if inp!=out else None; return False
+        try: 
+            import matchering as mg
+            mg.process(target=inp, reference=self.ref, results=[mg.pcm16(out)])
+            return True
+        except Exception as e: 
+            print(f'  ⚠️ {e}')
+            shutil.move(inp,out) if inp!=out else None; return False
 """
 
-# 3. Update Exec Params
-new_exec_start = r"""# === CONFIG ===
-INPUT_DIR       = '/kaggle/input/datasets/danieldobles/slavic-songs'
-REFERENCE_TRACK = '/kaggle/input/datasets/danieldobles/slavic-songs/REF.flac'
-OUTPUT_DIR      = '/kaggle/working/master_organized'
-TEMP_DIR        = '/kaggle/working/_temp_restore'
-BATCH_SIZE, SET_DUR, N_CLUSTERS = 16, 75*60, 3
-
-STAGES = {'neural_clean':True,'spectral_shape':True,'phase_shape':True,'stereo_widen':True,'mono_bass':True,'transient_punch':True,'spectre_restore':True,'matchering':True}
-SHAPER = {'amount': 60, 'speed': 90, 'sensitivity': 30}
-PHASE_CONTROL, STEREO_WIDTH = 0.0, 0.2"""
-
-# Apply changes
 for cell in nb['cells']:
-    if cell.get('id') == 'header':
-        cell['source'] = new_header
+    if cell.get('id') == 'header': cell['source'] = new_header
     elif cell.get('id') == 'restoration':
         lines = new_restoration_code.split('\n')
         cell['source'] = [l + '\n' for l in lines]
-    elif cell.get('id') == 'exec':
-        old_source = cell['source']
-        idx = 0
-        for i, line in enumerate(old_source):
-            if "print('\\n🔧 Warming Up Pipeline...')" in line:
-                idx = i
-                break
-        
-        new_lines = [l + '\n' for l in new_exec_start.split('\n')]
-        cell['source'] = new_lines + ["\n"] + old_source[idx:]
 
 with open(nb_path, 'w', encoding='utf-8') as f:
     json.dump(nb, f, indent=4)
