@@ -22,3 +22,6 @@
 *.pcm
 *.mid
 *.midi
+
+Slavic Data_Set/*
+MIR_v3_NITRO_RESULTS/*
